@@ -4,7 +4,7 @@
 
 typedef struct Node {
     //TODO: Define the structure of a node in the graph
-};
+}Node;
 
 struct Graph {
     //TODO: Implement the graph structure
