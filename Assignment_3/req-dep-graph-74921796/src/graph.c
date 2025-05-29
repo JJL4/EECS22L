@@ -1,107 +1,125 @@
 #include "../include/graph.h"
 #include <stdlib.h>
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
 
-// Bare minimum of libraries needed for compiling
+// Needed for strdup on Windows
+#ifndef _MSC_VER
+#include <strings.h>
+#endif
 
 typedef struct Node {
-    char *id; // Unique identifier for the requirement
-    struct Node **dependencies; // Array of pointers to dependent nodes
-    int dep_count; // Number of dependencies
-    int dep_capacity; // Capacity of the dependencies array
-}Node;
+    char req_id[32];
+    char **dependencies; // Array of child requirement IDs
+    int dep_count;
+    int dep_capacity;
+    struct Node *next;
+} Node;
 
 struct Graph {
-    Node **requirements; // Array of pointers to requirements (nodes)
-    int req_count; // Number of requirements
-    int req_capacity; // Capacity of the requirements array
-    //TODO: Implement the graph structure
+    Node *head;
+    int req_count;
 };
 
 Graph *create_graph() {
-    Graph *graph = malloc(sizeof(Graph)); // Allocate memory for the graph structure
-    graph->requirements = NULL; // Initialize the requirements array to NULL
-    graph->req_count = 0; // Initialize the count of requirements to 0
-    graph->req_capacity = 0; // Initialize the capacity of the requirements array to 0
-    return graph;
-}
-//NEW FUNCTION
-static Node *find_node(Graph *graph, const char *id) {
-    // Search for a node with the given ID in the graph
-    for (int i = 0; i < graph->req_count; i++) {
-        if (strcmp(graph->requirements[i]->id, id) == 0) {
-            return graph->requirements[i];
-        }
-    }
-    return NULL; // Return NULL if not found
+    Graph *g = (Graph*)malloc(sizeof(Graph));
+    g->head = NULL;
+    g->req_count = 0;
+    return g;
 }
 
+// Make find_node accept const Graph*
+static Node *find_node(const Graph *graph, const char *req_id) {
+    Node *cur = graph->head;
+    while (cur) {
+        if (strcmp(cur->req_id, req_id) == 0) return cur;
+        cur = cur->next;
+    }
+    return NULL;
+}
+
+// Add a new requirement to the graph
 void add_requirement(Graph *graph, const char *req_id) {
-    if (find_node(graph, req_id)) return; // If the requirement already exists, do nothing
-    if (graph->req_count >= graph->req_capacity) {
-        graph->req_capacity = graph->req_capacity ? graph->req_capacity * 2 : 4;
-        graph->requirements = realloc(graph->requirements, graph->req_capacity * sizeof(Node*));
-    } // Resize the requirements array if necessary
-    Node *new_node = malloc(sizeof(Node)); // Allocate memory for the new node
-    new_node->id = strdup(req_id); // Duplicate the requirement ID string
-    new_node->dependencies = NULL; // Initialize dependencies to NULL
-    new_node->dep_count = 0; // Initialize the dependency count to 0
-    new_node->dep_capacity = 0; // Initialize the dependency capacity to 0
-    graph->requirements[graph->req_count++] = new_node; // Add the new node to the graph
-}    
+    if (find_node(graph, req_id)) return;
+    Node *node = (Node*)malloc(sizeof(Node));
+    strncpy(node->req_id, req_id, sizeof(node->req_id));
+    node->req_id[sizeof(node->req_id) - 1] = '\0'; // Ensure null-termination
+    node->dep_count = 0;
+    node->dep_capacity = 2;
+    node->dependencies = (char**)malloc(node->dep_capacity * sizeof(char*));
+    node->next = graph->head;
+    graph->head = node;
+    graph->req_count++;
+}
 
+// NEW FUNCTION Provide a local strdup implementation if not available
+#ifndef HAVE_STRDUP
+static char *my_strdup(const char *s) {
+    size_t len = strlen(s) + 1;
+    char *d = (char*)malloc(len);
+    if (d) memcpy(d, s, len);
+    return d;
+}
+#else
+#define my_strdup strdup
+#endif
+
+// Add a dependency from one requirement to another
 void add_dependency(Graph *graph, const char *from_req, const char *to_req) {
-    Node *new_node = find_node(graph, from_req); // Find the node for the 'from' requirement
-    if (!new_node) return; // If the 'from' requirement does not exist, do nothing
-
-    for (int i = 0; i < new_node->dep_count; i++) {
-        if (strcmp(new_node->dependencies[i]->id, to_req) == 0) {
-            return; // If the dependency already exists, do nothing
-        }
+    Node *from = find_node(graph, from_req);
+    if (!from) return;
+    // Check for duplicate
+    for (int i = 0; i < from->dep_count; i++) {
+        if (strcmp(from->dependencies[i], to_req) == 0) return;
     }
-
-    if (new_node->dep_count >= new_node->dep_capacity) {
-        new_node->dep_capacity = new_node->dep_capacity ? new_node->dep_capacity * 2 : 4;
-        new_node->dependencies = realloc(new_node->dependencies, new_node->dep_capacity * sizeof(Node*));
-    } // Resize the dependencies array if necessary
-
-    new_node->dependencies[new_node->dep_count] = strdup(to_req); // Duplicate the dependency ID string
+    if (from->dep_count >= from->dep_capacity) {
+        from->dep_capacity *= 2;
+        from->dependencies = (char**)realloc(from->dependencies, from->dep_capacity * sizeof(char*));
+    }
+    from->dependencies[from->dep_count] = my_strdup(to_req);
+    from->dep_count++;
 }
-
+// Free the graph and all its nodes
 void free_graph(Graph *graph) {
-    for (int i = 0; i < graph->req_count; i++) {
-        free (graph ->requirements[i]->id); // Free the ID string of each requirement
-        for (int j = 0; j < graph->requirements[i]->dep_count; j++) {
-            free(graph->requirements[i]->dependencies[j]); // Free each dependency ID string
+    Node *cur = graph->head;
+    while (cur) {
+        for (int i = 0; i < cur->dep_count; i++) {
+            free(cur->dependencies[i]);
         }
-        free(graph->requirements[i]->dependencies); // Free the dependencies array
-        free(graph->requirements[i]); // Free the requirement node itself
+        free(cur->dependencies);
+        Node *tmp = cur;
+        cur = cur->next;
+        free(tmp);
     }
-    free(graph->requirements); // Free the requirements array
-    free(graph); // Free the graph structure itself
+    free(graph);
 }
-
+// Get the number of requirements in the graph
 int get_requirement_count(const Graph *graph) {
-    return graph->req_count; // Return the count of requirements in the graph
+    return graph->req_count;
 }
 
+// Get the ID of a requirement by its index
 const char *get_requirement_id(const Graph *graph, int index) {
-    if (index < 0 || index >= graph->req_count) {
-        return NULL; // Return NULL if the index is out of bounds
+    Node *cur = graph->head;
+    int i = 0;
+    while (cur) {
+        if (i == index) return cur->req_id;
+        cur = cur->next;
+        i++;
     }
-    return graph->requirements[index]->id; // Return the ID of the requirement at the given index
+    return NULL;
 }
-
+// Get the number of dependencies for a given requirement
 int get_dependency_count(const Graph *graph, const char *req_id) {
-    Node *node = find_node(graph, req_id); // Find the node for the given requirement ID
-    return node ? node->dep_count : 0; // Return the count of dependencies, or 0 if the node is not found
+    const Node *node = find_node(graph, req_id); // Now uses const Graph*
+    return node ? node->dep_count : 0;
 }
 
+// Get the ID of a dependency for a given requirement by index
 const char *get_dependency_id(const Graph *graph, const char *req_id, int index) {
-    Node *node = find_node(graph, req_id); // Find the node for the given requirement ID
-    if (!node || index < 0 || index >= node->dep_count) {
-        return NULL; // Return NULL if the node is not found or the index is out of bounds
+    const Node *node = find_node(graph, req_id); // Now uses const Graph*
+    if (node && index < node->dep_count) {
+        return node->dependencies[index];
     }
-    return node->dependencies[index]; // Return the ID of the dependency at the given index
+    return NULL;
 }

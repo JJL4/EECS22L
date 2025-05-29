@@ -1,95 +1,114 @@
 #include "../include/parse.h"
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
+#include <stdlib.h>
 #include <ctype.h>
-#include <regex.h>
 
-#define MAX_LINE_LENGTH 1024
-#define MAX_TAGS 50
-#define REQ_PATTERN "REQ-[A-Z]{2}-[A-Z]{4}-[0-9]{4}"
-
-//NEW FUNCTION
-static int extract_tags(const char *str, char tags[MAX_TAGS][20]) {
-    regex_t regex;
-    regmatch_t matches[1];
-    int count = 0;
-
-    if (regcomp(&regex, REQ_PATTERN, REG_EXTENDED) != 0) {
-        return 0; // Compilation failed
+// Helper function to extract requirement tag from a line
+static int extract_req_tag(const char *line, char *tag) {
+    const char *p = strstr(line, "REQ-");
+    if (!p) return 0;
+    int i = 0;
+    while (p[i] && (isalnum(p[i]) || p[i] == '-')) {
+        tag[i] = p[i];
+        i++;
+        if (i >= 20) break;
     }
-
-    const char *p = str;
-    while (regexec(&regex, p, 1, matches, 0) == 0) {
-        int start = matches[0].rm_so;
-        int end = matches[0].rm_eo;
-        int len = end - start;
-        
-        if (len < 20) {
-            strncpy(tags[count], p + start, len);
-            tags[count][len] = '\0';
-            count++;
-        }
-        p += end; // Move past the current match
-    }
-
-    regfree(&regex);
-    return count; // Return the number of tags found
+    tag[i] = '\0';
+    return (i > 0);
 }
+
+// Function to parse requirements from a file and build the dependency graph
 void parse_requirements(const char *filename, Graph *graph) {
     FILE *file = fopen(filename, "r");
     if (!file) {
-        perror("Error opening file");
+        printf("Error: Cannot open file %s\n", filename);
         return;
-    } // Open the file for reading
-    
-    printf("Selected file: %s\n", filename); // Print the selected file name
-    char line[MAX_LINE_LENGTH]; // Buffer to hold each line read from the file
-    int line_num = 0; // Line number counter
-    char current_req[20] = ""; // Current requirement ID being processed
-    char tags[MAX_TAGS][20]; // Array to hold extracted tags
-    int tag_count; // Number of tags extracted from the current line
-    
-    // Print first 3 lines
-    for (int i = 0; i < 3 && fgets(line, sizeof(line), file); i++) {
-        printf("%s", line);
     }
-    rewind(file);
-    
+    FILE *report = fopen("rdgg-report-74921796.md", "a");
+    if (!report) {
+        printf("Error: Cannot open report file for writing\n");
+        fclose(file);
+        return;
+    }
+
+    // Characters to hold the current line and requirement tag
+    char line[1024];
+    int lineno = 0;
+    char current_req[32] = "";
+    int pending_record = 0;
+    int pending_lineno = 0;
+    char pending_tag[32] = "";
+
     while (fgets(line, sizeof(line), file)) {
-        line_num++;
-        
-        // Extract all tags in line
-        tag_count = extract_tags(line, tags);
-        for (int i = 0; i < tag_count; i++) {
-            printf("%04d: %s\n", line_num, tags[i]);
-            add_requirement(graph, tags[i]);
+        lineno++;
+        char tag[32];
+
+        // If we have a pending record and hit an empty line, register it now
+        if (pending_record && (line[0] == '\n' || line[0] == '\r' || line[0] == 0)) {
+            printf("Line %d: %s --\n", pending_lineno, pending_tag);
+            fprintf(report, "Line %d: %s --\n", pending_lineno, pending_tag);
+            add_requirement(graph, pending_tag);
+            strcpy(current_req, pending_tag);
+            pending_record = 0;
         }
-        
-        // Process requirement records
+
+        // Check for ID line
         if (strstr(line, "ID:")) {
-            if (tag_count > 0) {
-                strcpy(current_req, tags[0]);
-                printf("%04d: %s --\n", line_num, current_req);
+            if (extract_req_tag(line, tag)) {
+                pending_record = 1;
+                pending_lineno = lineno; // Changed from lineno + 1 to lineno
+                strcpy(pending_tag, tag);
             }
         }
-        else if (strstr(line, "Parents:") && current_req[0]) {
-            for (int i = 0; i < tag_count; i++) {
-                if (strcmp(tags[i], current_req) != 0) {
-                    printf("%04d: %s -> %s\n", line_num, tags[i], current_req);
-                    add_dependency(graph, tags[i], current_req);
-                }
+        // Check for Parent/Parents line
+        else if (strstr(line, "Parent:") || strstr(line, "Parents:")) {
+            // Commit any pending ID before using current_req
+            if (pending_record) {
+                printf("Line %d: %s --\n", pending_lineno, pending_tag);
+                fprintf(report, "Line %d: %s --\n", pending_lineno, pending_tag);
+                add_requirement(graph, pending_tag);
+                strcpy(current_req, pending_tag);
+                pending_record = 0;
+            }
+            char *p = line;
+            while (extract_req_tag(p, tag)) {
+                printf("Line %d: %s -> %s\n", lineno, tag, current_req);
+                fprintf(report, "Line %d: %s -> %s\n", lineno, tag, current_req);
+                add_requirement(graph, tag);
+                add_dependency(graph, tag, current_req);
+                p = strstr(p, tag) + strlen(tag);
             }
         }
-        else if (strstr(line, "Children:") && current_req[0]) {
-            for (int i = 0; i < tag_count; i++) {
-                if (strcmp(tags[i], current_req) != 0) {
-                    printf("%04d: %s -> %s\n", line_num, current_req, tags[i]);
-                    add_dependency(graph, current_req, tags[i]);
-                }
+        // Check for Child/Children line
+        else if (strstr(line, "Child:") || strstr(line, "Children:")) {
+            // Commit any pending ID before using current_req
+            if (pending_record) {
+                printf("Line %d: %s --\n", pending_lineno, pending_tag);
+                fprintf(report, "Line %d: %s --\n", pending_lineno, pending_tag);
+                add_requirement(graph, pending_tag);
+                strcpy(current_req, pending_tag);
+                pending_record = 0;
+            }
+            char *p = line;
+            while (extract_req_tag(p, tag)) {
+                printf("Line %d: %s -> %s\n", lineno, current_req, tag);
+                fprintf(report, "Line %d: %s -> %s\n", lineno, current_req, tag);
+                add_requirement(graph, tag);
+                add_dependency(graph, current_req, tag);
+                p = strstr(p, tag) + strlen(tag);
             }
         }
     }
-    
+
+    // Final commit if file ends with a pending record
+    if (pending_record) {
+        printf("Line %d: %s --\n", pending_lineno, pending_tag);
+        fprintf(report, "Line %d: %s --\n", pending_lineno, pending_tag);
+        add_requirement(graph, pending_tag);
+        strcpy(current_req, pending_tag);
+    }
+
     fclose(file);
+    fclose(report);
 }

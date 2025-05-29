@@ -1,7 +1,11 @@
 ifeq ($(OS),Windows_NT)
-    TARGET = rdgg-74921796.exe
+	RM = del /Q
+	TARGET = rdgg-74921796.exe
+	CLEANEXT = 2>nul || exit 0
 else
-    TARGET = rdgg-74921796
+	RM = rm -f
+	TARGET = rdgg-74921796
+	CLEANEXT =
 endif
 
 all: $(TARGET)
@@ -22,4 +26,4 @@ report.o: src/report.c include/report.h include/graph.h
 	gcc -std=c11 -Wall -Iinclude -c src/report.c -o report.o
 
 clean:
-	rm -f *.o $(TARGET) rdgg-report-74921796.md
+	$(RM) *.o $(TARGET) rdgg-report-74921796.md $(CLEANEXT)

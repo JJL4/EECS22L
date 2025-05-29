@@ -1,34 +1,25 @@
 #include "../include/report.h"
 #include <stdio.h>
 
-void generate_report(const Graph *graph, const char *output_filename) {
-    // Open the output file for writing
-    FILE *file = fopen(output_filename, "w");
-    if (!file) {
-        perror("Error opening output file");
+// Generate a report of the requirements and their dependencies
+void generate_report(const Graph *graph, const char *output_filename)
+{
+    FILE *f = fopen(output_filename, "w");
+    if (!f) {
+        printf("Error: Cannot open report file %s\n", output_filename);
         return;
     }
-    fprintf(file, "digraph requirement_dependencies {\n");
-    fprintf(file, "  rankdir=LR;\n  node [shape=box];\n\n");
-
-    // Write the number of requirements
-    for (int i = 0; i < get_requirement_count(graph); i++) {
+    // Write the header
+    int req_count = get_requirement_count(graph);
+    for (int i = 0; i < req_count; i++) {
         const char *req_id = get_requirement_id(graph, i);
-        fprintf(file, "  \"%s\" [label=\"%s\"];\n", req_id, req_id);
-    }
-
-    fprintf(file, "\n");
-
-    // Add dependencies as edges
-    for (int i = 0; i < get_requirement_count(graph); i++) {
-        const char *from_id = get_requirement_id(graph, i);
-        for (int j = 0; j < get_dependency_count(graph, from_id); j++) {
-            const char *to_id = get_dependency_id(graph, from_id, j);
-            fprintf(file, "  \"%s\" -> \"%s\";\n", from_id, to_id);
+        fprintf(f, "Requirement: %s\n", req_id);
+        int dep_count = get_dependency_count(graph, req_id);
+        for (int j = 0; j < dep_count; j++) {
+            const char *dep_id = get_dependency_id(graph, req_id, j);
+            fprintf(f, "  Depends on: %s\n", dep_id);
         }
+        fprintf(f, "\n");
     }
-    fprintf(file, "}\n");
-    fclose(file);
-    printf("Report generated: %s\n", output_filename);
-
+    fclose(f);
 }
