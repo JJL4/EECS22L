@@ -1,21 +1,28 @@
 #include "../include/parse.h"
 #include "../include/report.h"
 #include "../include/graph.h"
-//Bare minimum of libraries needed for compiling for main.c
+#include <stdio.h>
+#include <stdlib.h>
+
+#define STUDENT_ID "74921796"
 
 int main(int argc, char **argv) {
-    //TODO: Implement the main function to handle command line arguments and call the appropriate functions
-    //The below are some example functions that are implemented and others can also be implemented as needed
-    //Include argument parsing for input and output files. No more than 2 arguments usually
-    const char* input_filename = argv[1];
-    const char* output_filename = argv[2];
-    //Include creating a graph and adding requirements and dependencies
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <input.md>\n", argv[0]);
+        return 1;
+    } // Check if the correct number of arguments is provided
+    
     Graph *graph = create_graph();
-    //Include parsing requirements from a file
-    parse_requirements(input_filename, graph);
-    //Include generating a report
-    generate_report(graph, output_filename);
-    //Include freeing the graph memory
+    parse_requirements(argv[1], graph);
+    // Parse the requirements from the input file and add them to the graph
+    
+    char report_filename[50];
+    snprintf(report_filename, sizeof(report_filename), 
+             "rdgg-report-%s.md", STUDENT_ID);
+    // Generate the report filename using the student ID
+    
+    generate_report(graph, report_filename);
     free_graph(graph);
+    
     return 0;
 }
